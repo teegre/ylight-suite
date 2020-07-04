@@ -10,17 +10,17 @@ get_status() {
 
     light_status="$(ylight -s)"
 
-	HOST="$(awk '/host/ {print $2}' <<< "$light_status")"
-	PORT="$(awk '/port/ {print $2}' <<< "$light_status")"
+    HOST="$(awk '/host/ {print $2}' <<< "$light_status")"
+    PORT="$(awk '/port/ {print $2}' <<< "$light_status")"
     power="$(awk '/power/ {print $2}' <<< "$light_status")"
     bright="$(awk '/brightness/ {print $2}' <<< "$light_status")"
     timer="$(awk '/timer/ {print $2}' <<< "$light_status")"
 
     if [[ $power ]]; then
-		[[ $power == "on" ]] && _status=" $bright" || _status=""
-		[[ $timer ]] && _status+="   $timer mn"
+        [[ $power == "on" ]] && _status=" $bright" || _status=""
+        [[ $timer ]] && _status+="   $timer mn"
     else
-		_status="[]"
+        _status="[]"
     fi
 
     echo "$_status" > "$STATUS_FILE"
@@ -28,7 +28,7 @@ get_status() {
 
 listen() {
     while read -r; do
-		get_status
+        get_status
     done < <(netcat "$HOST" "$PORT")
 }
 
