@@ -7,11 +7,11 @@ DEST_DIR="$HOME/.local/bin"
 mkdir -p     "$CONFIG_DIR"
 mkdir -p     "$SERVICE_DIR"
 
-cp ylight    "$DEST_DIR"
-cp ylightc   "$DEST_DIR"
-cp ysunlight "$DEST_DIR"
+cp src/ylight    "$DEST_DIR"
+cp src/ylightc   "$DEST_DIR"
+cp src/ysunlight "$DEST_DIR"
 
 cp ysunlight.service "$SERVICE_DIR"
 cp -n ysunlight.conf "$CONFIG_DIR"
 
-cp ./*.png "$CONFIG_DIR"
+cp img/*.png "$CONFIG_DIR"

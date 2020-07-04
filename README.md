@@ -3,21 +3,22 @@
 A. YLIGHT utility to control Yeelight® bulbs  
 B. YSUNLIGHT set color temperature to time of the day
 
-## A. YLIGHT version 0.5 (2020-06)
+*Depends on: curl, jq, netcat*
 
-YLIGHT - utility to control Yeelight® bulbs
-
-*dependencies: netcat, jq*
-
-### 1. Installation
+## Installation
 
 Clone this repository:  
-`git clone https://github.com/teegre/ylight.git`
+`git clone https://github.com/teegre/ylight-suite.git`
 
 then:  
 `./install.sh`
 
-### 2. Usage
+
+## A. YLIGHT version 0.5 (2020-06)
+
+YLIGHT - utility to control Yeelight® bulbs
+
+### 1. Usage
 
 LAN Control has to be enabled via Yeelight® mobile application:  
 [https://www.yeelight.com/faqs/lan_control](https://www.yeelight.com/faqs/lan_control)
@@ -28,7 +29,7 @@ $ ylight --discover
 ylight: OK
 ```
 
-*If you get an error message, wait a few seconds and launch this command again.*
+*If you get an error message, wait a few seconds and invoke the command again.*
 
 Show bulb status:  
 
@@ -52,7 +53,7 @@ bulb2:xxx.xxx.x.xxx:xxxxx
 ```
 
 The first of the list will be used as default.
-So, if you you want to turn *bulb2* on:  
+So, if you want to turn *bulb2* on:  
 ```
 $ ylight --name bulb2 --on
 ```
@@ -63,7 +64,7 @@ $ ylight --set-default bulb2
 default bulb set to: 'bulb2'
 ```
 
-### 3. Options
+### 2. Options
 
 OPTIONS:
 
@@ -91,7 +92,7 @@ OPTIONS:
 | -h, --help                  | print this help and exit                                    |
 | -V, --version               | print program version and exit                              |
 
-### 4. Some examples
+### 3. Some examples
 
 Turn light on, set brightness to 50% and color temperature to 4500K:  
 `ylight -n -b 50 -c 4500`
@@ -104,10 +105,8 @@ Decrease brightness by 10% and turn light off:
 YSUNLIGHT - set color temperature according to time of the day.
 
 Once per day, **ysunlight** connects to this website [https://sunrise-sunset.org](https://sunrise-sunset.org)  
-to retrieve sunrise and sunset times in your city, then it sets the right color temperature.
+to retrieve sunrise and sunset times in your city, then it sets the right color temperature.  
 If the light is currently turned off, color temperature will be set once you turn the light on.
-
-*Dependencies: curl, jq, ylight*
 
 ### 1. Configuration
 
@@ -132,7 +131,7 @@ System clock synchronized: yes
           RTC in local TZ: no
 
 ```
-What we need is **Europe/Paris**
+What you need is **Europe/Paris**
 
 #### 1.2 Latitude and longitude
 
@@ -177,5 +176,5 @@ and also: `systemctl --user status ysunlight`
 
 ## C. TODO
 
-YLIGHT: ability to send commands more than one bulb at once
+YLIGHT: ability to send commands to more than one bulb at a time.
 
