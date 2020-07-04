@@ -1,0 +1,10 @@
+[Unit]
+Description=ysunlight service
+
+[Service]
+ExecStart=/bin/bash %h/.local/bin/ysunlight
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

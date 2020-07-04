@@ -1,0 +1,3 @@
+#! /usr/bin/bash
+sun_pid="$(cat "$HOME/.config/ylight/ysunlight.pid" 2> /dev/null)"
+ylightc "$@" && [[ $sun_pid ]] && kill -HUP "$sun_pid" 2> /dev/null

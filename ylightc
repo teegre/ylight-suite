@@ -1,0 +1,580 @@
+#! /usr/bin/env bash
+#
+# Utility to control a Yeelight bulb
+progname="$(basename "$0")"
+PROGNAME="${progname^^}"
+VERSION="20200629-0.5"
+
+declare HOST
+declare PORT
+
+declare CONFIG_DIR="$HOME/.config/ylight"
+declare BULBS="$CONFIG_DIR/bulbs.conf"
+
+ICON="$CONFIG_DIR/icon.png"
+
+declare NAME
+declare POWER
+declare -i BRIGHT
+declare -i CT
+declare -i TIMER
+
+declare EFFECT="smooth"
+declare -i TRANSITION=500
+
+declare -i ID=0
+
+declare -i _count
+
+__help() {
+
+cat << 'EOB' >&2
+YLIGHT - utility to control Yeelight bulbs
+
+USAGE:
+ylight [OPTIONS] [VALUE]
+
+OPTIONS:
+--discover                   - discover and save available bulb(s) on local network
+-a, --name DEVICE_NAME       - send command to DEVICE_NAME
+--set-name NAME              - set device name
+--set-default DEVICE_NAME    - set DEVICE_NAME as default device
+-l, --list                   - print saved bulbs
+-s, --status                 - display bulb status
+-n, --on                     - turn light on
+-f, --off                    - turn light off
+-t, --toggle                 - toggle power
+-b, --brightness [+/-]VALUE  - set brightness (1..100)
+-c, --color-temp [+/-]VALUE  - set color temperature (1700..6500)
+-T, --timer [DURATION]       - enable timer for a given duration
+                               (from 1 to 120 minutes). 0 to turn off
+                               current timer;
+                               if no argument is present, each call
+                               to the function will set the timer
+                               with a preset duration
+                               (30, 60, 90, 120 minutes or off, respectively)
+-S, --smooth [DURATION_MS]   - smooth transition time when changing settings (100..10000)
+-u, --sudden                 - changes are applied immediately (ignore -S)
+-N, --notify                 - display a notification
+-h, --help                   - print this help and exit
+-V, --version                - print program version and exit
+      
+EOB
+}
+
+__err() {
+    local color off
+    if [[ $TERM != "linux" ]]; then
+        off="$(tput sgr0)"
+
+        case "$1" in
+        -l) color="$(tput setaf 2)" ;;
+        -n) color="$(tput setaf 3)" ;;
+        -u) color="$(tput setaf 1)"
+        esac
+    fi
+    ( >&2 echo -e "${color}$2${off}" )
+}
+
+# constrain a value between a minimum and a maximum
+_clamp() {
+    local val min max
+    val=$1
+    min=$2
+    max=$3
+    ((val=val<min?min:val>max?max:val))
+    echo "$val"
+}
+
+discover() {
+	local cmd pid response
+	cmd="M-SEARCH * HTTP/1.1\r\nMAN: \"ssdp:discover\"\r\nST: wifi_bulb\r\n\r\n"
+    response="$(mktemp)"
+	cp "$BULBS" "$BULBS.backup" 2> /dev/null
+	:> "$BULBS"
+	# listen to port 1111 for response
+	( timeout 5 netcat -u -l -p 1111 > "$response" ) & pid=$!
+	# send datagram
+	echo -e "$cmd" | timeout 0.25 netcat -u -p 1111 239.255.255.250 1982
+	wait $pid
+    if [[ -s "$response" ]]; then
+		# we need to get device name, IP address and port
+		local name location
+		while read -r line; do
+			if [[ $line =~ ^Location:.*$ ]]; then 
+				location="${line%$'\r'}"
+				location="${location/Location: }"
+				location="${location/yeelight:\/\/}"
+			elif [[ $line =~ ^name:.*$ ]]; then
+				name="${line%$'\r'}"
+				name="${name/name: }"
+				# i don't know what happens if several bulbs are discovered
+				echo "$name:$location" >> "$BULBS"
+			fi
+		done < "$response"
+	else
+		__err -u "no response: try again later"
+		rm "$response"
+		mv "$BULBS.backup" "$BULBS" 2> /dev/null
+		return 1
+	fi
+	__err -l "OK"
+	rm "$response"
+	return 0
+}
+
+_parse() {
+    local method="$1"
+    local response="$2"
+    local power bright ct delay #name
+	[[ -z $response ]] && return 1
+    case $_count in
+	0)
+		result="$(jq -r '.result[0]' 2> /dev/null <<< "$response")"
+		if [[ $result == "null" ]]; then
+			result="$(jq -r '.error["message"]' 2> /dev/null <<< "$response")"
+			__err -u "$result"
+			return 1
+		elif [[ $result == "ok" ]]; then
+			((_count++))
+			return 0
+		elif [[ $method == "get_prop" ]]; then
+			power="$(jq -r '.result[0]' 2> /dev/null <<< "$response")"
+			bright="$(jq -r '.result[1]' 2> /dev/null <<< "$response")"
+			ct="$(jq -r '.result[2]' 2> /dev/null <<< "$response")"
+			delay="$(jq -r '.result[3]' 2> /dev/null <<< "$response")"
+			name="$(jq -r '.result[4]' 2> /dev/null <<< "$response")"
+			[[ $power != null ]] && POWER=$power
+			[[ $bright != null ]] && BRIGHT=$bright
+			[[ $ct != null ]] && CT=$ct
+			[[ $delay != null ]] && TIMER=$delay
+			[[ $name != null ]] && NAME=$name
+			((_count++))
+			return 0
+		fi
+	    ;;
+	1)
+		result="$(jq -r '.method' <<< "$response")"
+		if [[ $result == "props" ]]; then
+			power="$(jq -r '.params["power"]' 2> /dev/null <<< "$response")"
+			bright="$(jq -r '.params["bright"]' 2> /dev/null <<< "$response")"
+			ct="$(jq -r '.params["ct"]' 2> /dev/null <<< "$response")"
+			delay="$(jq -r '.params["delay"]' 2> /dev/null <<< "$response")"
+			[[ $power != null ]] && POWER=$power
+			[[ $bright != "null" ]] && BRIGHT=$bright
+			[[ $ct != "null" ]] && CT=$ct
+			[[ $delay != null ]] && TIMER=$delay
+			((_count++))
+			return 0
+		fi
+	    ;;
+	*)  result="$response"
+    esac
+}
+
+# methods		response
+# get_prop      props:["power","bright","ct","delayoff"]
+# set_bright    bright
+# set_ct_abx    ct
+# set_power     power
+# toggle
+# cron_add		delayoff
+# cron_del		delayoff
+# set_name      name
+
+send_cmd() {
+    # send a command to the light
+    local method='"'$1'"'
+    local params cmd response
+    case $1 in
+	get_prop  ) params=',"params":["power","bright","ct","delayoff","name"]' ;;
+	set_bright) params=',"params":['$2',"'$EFFECT'",'$TRANSITION']' ;;
+	set_ct_abx) params=',"params":['$2',"'$EFFECT'",'$TRANSITION']' ;;
+	set_power ) params=',"params":["'$2'","'$EFFECT'",'$TRANSITION']' ;;
+	cron_add  ) params=',"params":[0,'$2']' ;;
+	cron_del  ) params=',"params":[0]' ;;
+	set_name  ) params=',"params":["'$2'"]' ;;
+    esac
+    _count=0
+    cmd='{"id":'$ID',"method":'$method''$params'}\r\n'
+	# since netcat exit code is always 1
+	# we have to use a temp file to store
+	# stderr output...
+	TMPERR="$(mktemp)"
+    while read -r response; do
+		_parse "$1" "$response" || {
+			__err -u "invalid response: check IP address/port"
+		    return 1
+		}
+	done < <(echo -e "$cmd" | timeout 0.25s netcat "$HOST" "$PORT" 2> "$TMPERR")
+	if [[ -s "$TMPERR" ]]; then
+		if [[ $HOST && $PORT ]]; then
+			__err -u "unable to connect: $HOST:$PORT"
+		else
+			__err -u "unable to connect to '$BNAME'"
+		fi
+		rm "$TMPERR"
+		return 1
+	fi
+	rm "$TMPERR"
+	((ID++))
+	return 0
+}
+
+get_status() {
+    echo "name:       $NAME"
+	echo "host:       $HOST"
+	echo "port:       $PORT"
+    echo "power:      $POWER"
+    echo "brightness: $BRIGHT%"
+    printf "color temp: %sK\n" "$CT"
+    [[ $TIMER -gt 0 ]] &&
+		echo "timer:      $TIMER minute(s)"
+	echo "effect:     $EFFECT"
+	echo "transition: $TRANSITION ms"
+}
+
+[[ -z $1 ]] && {
+    __err -n "missing option(s)"
+    echo "try 'ylight --help' for more info"
+    exit 1
+}
+
+_opts=$(LC_ALL=C getopt               \
+    --long "on"                       \
+    --long "off"                      \
+    --long "toggle"                   \
+    --long "sudden"                   \
+    --long "status"                   \
+    --long "notify"                   \
+    --long "help"                     \
+    --long "version"                  \
+    --long "brightness:"              \
+    --long "color-temp:"              \
+    --long "timer::"                  \
+    --long "smooth::"                 \
+	--long "discover"                 \
+	--long "set-name:"                \
+	--long "name:"                    \
+	--long "list"                     \
+	--long "set-default:"             \
+    --options "nftusNvhVb:c:T::S::al" \
+    --name "$(basename "$0")"         \
+    -- "$@"
+) || { __err -u "failed to parse options"; exit 1;}
+
+eval set -- "$_opts"
+
+while :; do
+    case "$1" in
+	-s | --status)
+	    _status=1
+	    shift
+	    ;;
+	-n | --on)
+	    [[ $_off || $_toggle ]] && {
+			__err -u "cannot do that."
+	        exit 1
+	    }
+	    _on=1
+	    shift
+	    ;;
+	-f | --off)
+	    [[ $_on || $_toggle || $_timer ]] && {
+			__err -u "cannot do that."
+	        exit 1
+	    }
+	    _off=1
+	    shift
+	    ;;
+	-t | --toggle)
+	    [[ $_on || $_off ]] && {
+			__err -u "cannot do that."
+			exit 1
+	    }
+	    _toggle=1
+	    shift
+	    ;;
+	-b | --brightness)
+	    [[ $_off ]] && {
+			__err -u "cannot do that."
+	        exit 1
+	    }
+	    _bright=1
+	    shift
+	    if [[ $1 =~ ^(\+?|-?)[1-9][0-9]{0,2}$ ]]; then
+			_bvalue=$1
+			shift
+	    fi
+	    ;;
+	-c | --color-temp)
+	    [[ $_off ]] && {
+			__err -u "cannot do that."
+	        exit 1
+	    }
+	    _ct=1
+	    shift
+	    if [[ $1 =~ ^(\+?|-?)[1-9][0-9]{1,3}$ ]]; then
+			_cvalue=$1
+			shift
+	    fi
+	    ;;
+
+	-T | --timer)
+	    [[ $_off || $_toggle ]] && {
+			__err -u "cannot do that."
+	        exit 1
+	    }
+	    _timer=1
+	    shift
+		if [[ $1 =~ ^[0-9]{1,3}$ ]]; then
+			_tvalue=$1
+			shift
+	    fi
+	    ;;
+	--set-name)
+	    shift
+	    if [[ $1 =~ [[:alnum:]]+ ]]; then
+			NAME="$1"
+			shift
+	    fi
+	    ;;
+	-a | --name)
+		BNAME="$2"
+		shift 2
+		;;
+	--discover)
+		_discover=1
+		shift
+		;;
+	-l | --list)
+		[[ -s "$BULBS" ]] && { cat "$BULBS"; exit 0; }
+		__err -u "no bulb found"
+		__err -n "try 'ylight --discover'"
+		exit 1
+		;;
+	--set-default)
+		shift
+		if [[ $1 =~ [[:alnum:]]+ ]]; then
+		    name="$1"
+			shift
+			tmp="$(mktemp)"
+			n="$(sed -n "/^$name:.*$/=" "$BULBS")"
+			if [[ $n ]]; then
+				(
+					sed -n "/^$name/{p;q}" "$BULBS"
+					sed "/^$name/d" "$BULBS"
+				) > "$tmp" && mv "$tmp" "$BULBS"
+				__err -n "default bulb set to: '$name'"
+				exit 0
+			else
+				__err -u "could not find '$name'"
+				exit 1
+			fi
+		else
+			__err -u "invalid argument"
+			exit 1
+		fi
+		;;
+	-S | --smooth)
+	    [[ $_sudden ]] && {
+			__err -u "cannot do that."
+	        exit 1
+	    }
+	    EFFECT="smooth"
+	    _smooth=1
+	    shift
+	    if [[ $1 =~ ^[0-9]+$ ]]; then
+			TRANSITION="$(_clamp "$1" 100 10000)"
+			shift
+	    fi
+	    ;;
+	-u | --sudden)
+	    EFFECT="sudden"
+		unset _smooth
+	    _sudden=1
+	    TRANSITION=0
+	    shift
+	    ;;
+	-N | --notify)
+	    _notify=1
+	    shift
+	    ;;
+	-h | --help)
+	    _help=1
+	    shift
+	    ;;
+	-V | --version)
+	    _ver=1
+	    shift
+	    ;;
+	--)
+	    shift
+	    break
+	    ;;
+	*)
+	    [[ -z $1 ]] && break
+	    __err -u "invalid option '$1'"
+	    exit 1
+    esac
+done
+
+read_location() {
+	# if we don't have a bulb name the default is the first line of the config file
+    # TODO: add --all option to send commands to all bulbs
+	while read -r line; do
+		IFS=$'\n' read -d "" -ra array <<< "${line//:/$'\n'}"
+		if ! [[ $BNAME ]]; then
+			CNAME="${array[0]}"
+			HOST="${array[1]}"
+			PORT="${array[2]}"
+			return 0
+		elif [[ ${array[0]} == "$BNAME" ]]; then
+			CNAME="$BNAME"
+			HOST="${array[1]}"
+			PORT="${array[2]}"
+			return 0
+		fi
+	done < "$BULBS"
+	__err -u "'$BNAME' not found"
+	return 1
+}
+
+toggle() {
+    local power=$POWER
+    [[ $power == "on" ]] && power="off" || power="on"
+    if [[ $_smooth || $_sudden ]]; then
+	send_cmd "set_power" "$power"
+    else
+	send_cmd "toggle"
+    fi
+}
+
+__notify() {
+    notify-send -t 1500 -i "$ICON" "$PROGNAME: $NAME" "$1"
+}
+
+# - help, version, discover and set-name are priorities
+# - no other output is generated
+[[ $_help ]] && { __help; exit 0; }
+[[ $_ver ]] && { echo "$PROGNAME version $VERSION"; exit 0; }
+[[ $_discover ]] && { discover; exit $!; }
+
+if ! [[ -a "$BULBS" ]] || ! [[ -s "$BULBS" ]]; then
+	mkdir -p "$CONFIG_DIR"
+	__err -n "cannot find any bulb to control"
+	__err -u "please run 'ylight --discover'"
+	exit 1
+fi
+
+read_location || exit 1
+
+# - set device name
+[[ $NAME ]] && {
+	if [[ $NAME =~ [:] ]]; then
+		__err -u "name cannot contain ':' character"
+		exit 1
+	fi
+	if send_cmd "set_name" "$NAME"; then
+		sed -i "s/^$CNAME/$NAME/" "$BULBS"
+		__err -n "name set"
+	else
+		__err -u "could not set name"
+		exit 1
+	fi
+    exit 0
+}
+
+# - power device
+[[ $_on ]] && { send_cmd "set_power" "on"; }
+
+# - get light properties
+send_cmd "get_prop"
+
+[[ $_toggle ]] && toggle
+
+# - at this point, exit if power is off
+[[ $POWER == off ]] && {
+    [[ $_status ]] && get_status
+    [[ $_notify ]] && __notify "power off"
+    [[ $_bright ]] && __err -n "--brightness ignored"
+    [[ $_ct ]] && __err -n "--color-temp ignored"
+    [[ $_timer ]] && __err -n "--timer ignored"
+    exit 0
+}
+
+# - notify if power on
+[[ $_toggle || $_on ]] && [[ $POWER == "on" && $_notify ]] &&
+    __notify "power on"
+
+# - brightness setting
+[[ $_bright ]] && {
+    [[ -z $_bvalue ]] && { __err -u "brightness: wrong value"; exit 1; }
+    if [[ $_bvalue =~ ^(\+|-).* ]]; then
+		[[ $BRIGHT -eq 1 ]] && BRIGHT=0
+		((value=BRIGHT+_bvalue))
+    else
+		value=$_bvalue
+    fi
+    value=$(_clamp "$value" 1 100)
+    # only send command if there is a change
+    if [[ $value -ne $BRIGHT ]]; then
+		BRIGHT=$value
+		send_cmd "set_bright" "$BRIGHT"
+    fi
+    [[ $_notify ]] && __notify "brightness: $BRIGHT%"
+}
+
+# - color temperature setting
+[[ $_ct ]] && {
+    [[ -z $_cvalue ]] && { __err -u "color temp: wrong value"; exit 1; }
+    [[ $_cvalue =~ ^(\+|-).* ]] &&
+		((value=CT+_cvalue)) \
+		|| value=$_cvalue
+    value=$(_clamp "$value" 1700 6500)
+    if [[ $value -ne $CT ]]; then
+        CT=$value
+        send_cmd "set_ct_abx" "$CT"
+    fi
+    [[ $_notify ]] && __notify "color temp: $CT"
+}
+
+[[ $_off ]] && send_cmd "set_power" "off"
+
+# - timer setting
+[[ $_timer ]] && {
+    if [[ -z $_tvalue ]]; then
+	if ((TIMER == 0)); then
+	    send_cmd "cron_add" 30
+	elif ((TIMER > 0 && TIMER < 30)); then
+	    send_cmd "cron_add" 30
+	    TIMER=30
+	elif ((TIMER >= 30 && TIMER < 60)); then
+	    send_cmd "cron_add" 60
+	    TIMER=60
+	elif ((TIMER >= 60 && TIMER < 90)); then
+	    send_cmd "cron_add" 90
+	    TIMER=90
+	elif ((TIMER >= 90 && TIMER < 120)); then
+	    send_cmd "cron_add" 120
+	    TIMER=120
+	else
+	    send_cmd "cron_del"
+	    TIMER=0
+	fi
+    elif [[ $_tvalue -eq 0 ]]; then
+		send_cmd "cron_del"
+		TIMER=0
+    else
+		TIMER=$(_clamp "$_tvalue" 1 120)
+		send_cmd "cron_add" "$TIMER"
+    fi
+    [[ $_notify ]] && {
+		if ((TIMER == 0)); then __notify "timer off"
+		else __notify "timer: $TIMER minutes"
+	fi
+    }
+}
+
+[[ $_status ]] && get_status
+exit 0
