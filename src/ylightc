@@ -239,26 +239,26 @@ get_status() {
     exit 1
 }
 
-_opts=$(LC_ALL=C getopt               \
-    --long "on"                       \
-    --long "off"                      \
-    --long "toggle"                   \
-    --long "sudden"                   \
-    --long "status"                   \
-    --long "notify"                   \
-    --long "help"                     \
-    --long "version"                  \
-    --long "brightness:"              \
-    --long "color-temp:"              \
-    --long "timer::"                  \
-    --long "smooth::"                 \
-    --long "discover"                 \
-    --long "set-name:"                \
-    --long "name:"                    \
-    --long "list"                     \
-    --long "set-default:"             \
-    --options "nftusNvhVb:c:T::S::al" \
-    --name "$(basename "$0")"         \
+_opts=$(LC_ALL=C getopt                 \
+    --long "on"                         \
+    --long "off"                        \
+    --long "toggle"                     \
+    --long "sudden"                     \
+    --long "status"                     \
+    --long "notify"                     \
+    --long "help"                       \
+    --long "version"                    \
+    --long "brightness:"                \
+    --long "color-temp:"                \
+    --long "timer::"                    \
+    --long "smooth::"                   \
+    --long "discover"                   \
+    --long "set-name:"                  \
+    --long "name:"                      \
+    --long "list"                       \
+    --long "set-default:"               \
+    --options "a:lsnftb:c:T::S::uNhV"   \
+    --name "$(basename "$0")"           \
     -- "$@"
 ) || { __err -u "failed to parse options"; exit 1;}
 
@@ -339,8 +339,11 @@ while :; do
         fi
         ;;
     -a | --name)
-        BNAME="$2"
-        shift 2
+        shift
+        if [[ $1 =~ [[:alnum:]]+ ]]; then
+            BNAME="$1"
+            shift
+        fi
         ;;
     --discover)
         _discover=1
