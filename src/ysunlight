@@ -71,7 +71,7 @@ get_times() {
     # sunrise and sunset times are in UTC
     echo "ysunlight: fetching sunrise and sunset times..."
     response="$(curl --silent https://api.sunrise-sunset.org/json?lat="$LAT"\&lng="$LON"\&date=today)"
-    [[ -z $response ]] && { echo "no response"; exit 1; }
+    [[ -z $response ]] && { echo "ysunlight: no response"; exit 1; }
     echo "ysunlight: parsing response..."
     sunrise="$(jq -r '.results["sunrise"]' <<< "$response")"
     sunset="$(jq -r '.results["sunset"]' <<< "$response")"
