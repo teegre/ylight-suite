@@ -1,11 +1,11 @@
 [Unit]
 Description=ysunlight service
+After=network-online.target
 
 [Service]
 ExecStart=/bin/bash %h/.local/bin/ysunlight
 Restart=on-failure
 RestartSec=10
-After=network-online.target
 
 [Install]
 WantedBy=default.target
