@@ -133,6 +133,8 @@ _parse() {
     elif [[ $result == "ok" ]]; then
       ((_count++))
       return 0
+    elif [[ -z $result ]]; then
+      return 1
     elif [[ $method == "get_prop" ]]; then
       power="$(jq -r '.result[0]' 2> /dev/null <<< "$response")"
       bright="$(jq -r '.result[1]' 2> /dev/null <<< "$response")"
@@ -231,7 +233,7 @@ get_status() {
 
 [[ -z $1 ]] && {
   __err "missing option(s)"
-  echo "try 'ylight --help' for more info"
+  __err "try 'ylight --help' for more info"
   exit 1
 }
 
@@ -482,11 +484,11 @@ read_location || exit 1
   exit 0
 }
 
-# - power device
-[[ $_on ]] && { send_cmd "set_power" "on"; }
+# - power device on
+[[ $_on ]] && { send_cmd "set_power" "on" || exit 1; }
 
 # - get light properties
-send_cmd "get_prop"
+send_cmd "get_prop" || exit 1
 
 [[ $_toggle ]] && toggle
 
