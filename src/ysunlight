@@ -20,8 +20,9 @@ declare TIMEZONE
 declare LAT
 declare LON
 
-declare SUNRISE="4:00:00 AM"
-declare SUNSET="7:00:00 PM"
+declare SUNRISE="5:00:00 AM"
+declare SUNSET="5:00:00 PM"
+declare NIGHT="8:00:00 PM"
 
 declare -i SR_DUR #sunrise duration in seconds
 declare -i SS_DUR #sunset duration in seconds
@@ -30,6 +31,7 @@ declare -i SR_STEP_DUR #sunrise step duration in seconds
 declare -i SS_STEP_DUR #sunset step duration in seconds
 
 declare LOWEST_CT=1700
+declare MID_CT=4500
 declare HIGHEST_CT=6500
 
 declare WEEKDAY
@@ -67,7 +69,7 @@ update() {
 }
 
 get_times() {
-    local response sunrise sunset
+    local response sunrise sunset night
     # sunrise and sunset times are in UTC
     echo "ysunlight: fetching sunrise and sunset times..."
     response="$(curl --silent https://api.sunrise-sunset.org/json?lat="$LAT"\&lng="$LON"\&date=today)"
@@ -87,11 +89,14 @@ get_times() {
     else
         echo "ysunlight: warning! could not retrieve sunset time"
     fi
+    night="$(readoption "night_time")" || night="$NIGHT"
+    NIGHT="$(date -d "$night" '+%s')"
+    echo "ysunlight: night set to: $night $(date '+%Z')"
     echo "ysunlight: done."
 }
 
 monitor() {
-    local now sunrise_end sunset_end midnight
+    local now sunrise_end sunset_end transition_end midnight
     local sleeptime colortemp power ct
     local response
     local start=1
@@ -112,21 +117,20 @@ monitor() {
 
         ((sunrise_end=SUNRISE+SR_DUR))
         ((sunset_end=SUNSET+SS_DUR))
+        ((transition_end=NIGHT+SS_DUR))
 
         if ((now >= SUNRISE && now <= sunrise_end)); then
             if [[ $start ]]; then
             # compute time difference to set correct color temperature
             notify "$(date '+%H:%M') sun is rising!"
             echo "sunrise" > "$PERIOD_FILE"
-            local timediff
+            local timediff i
             colortemp=$LOWEST_CT
             ((timediff=(now-SUNRISE)/SR_STEP_DUR))
             for ((i=0;i<timediff;i++)); do
                 ((colortemp+=SR_CT_STEP))
             done
             echo "ysunlight: [$(date '+%H:%M')] target colortemp: $colortemp"
-            unset i
-            unset time_diff
             unset start
             fi
             ((sleeptime=SR_STEP_DUR))
@@ -134,47 +138,74 @@ monitor() {
             echo "ysunlight: [$(date '+%H:%M')] actual color temperature: $colortemp"
         elif ((now >= SUNSET && now <= sunset_end)); then
             if [[ $start ]]; then
-            # compute time difference to set correct color temperature
-            notify "$(date '+%H:%M') it's sunset!"
-            echo "sunset" > "$PERIOD_FILE"
-            local timediff
-            colortemp=$HIGHEST_CT
-            ((timediff=(now-SUNSET)/SS_STEP_DUR))
-            #echo "ysunlight: [$(date '+%H:%M')] time difference: $timediff"
-            for ((i=0;i<timediff;i++)); do
-                ((colortemp-=SS_CT_STEP))
-            done
-            echo "ysunlight: [$(date '+%H:%M')] target colortemp: $colortemp"
-            unset i
-            unset time_diff
-            unset start
+                # compute time difference to set correct color temperature
+                notify "$(date '+%H:%M') it's sunset!"
+                echo "sunset" > "$PERIOD_FILE"
+                local timediff i
+                colortemp=$MID_CT
+                ((timediff=(now-SUNSET)/SS_STEP_DUR))
+                #echo "ysunlight: [$(date '+%H:%M')] time difference: $timediff"
+                for ((i=0;i<timediff;i++)); do
+                    ((colortemp-=SS_CT_STEP))
+                done
+                echo "ysunlight: [$(date '+%H:%M')] target colortemp: $colortemp"
+                unset start
             fi
             ((sleeptime=SS_STEP_DUR))
             ((colortemp-=SS_CT_STEP))
             echo "ysunlight: [$(date '+%H:%M')] actual color temperature: $colortemp"
+        elif ((now >= NIGHT && now <= transition_end)); then
+            if [[ $start ]]; then
+                # compute time difference to set color temperature
+                notify "$(date '+%H:%M') this is the night!"
+                echo "night_transition" > "$PERIOD_FILE"
+                local timediff i
+                colortemp=$MID_CT
+                ((timediff=(now-NIGHT)/SS_STEP_DUR))
+                for ((i=0;i<timediff;i++)); do
+                    ((colortemp-=NT_CT_STEP))
+                done
+                echo "ysunlight: [$(date '+%H:%M')] target colortemp: $colortemp"
+                unset start
+            fi
+            ((sleeptime=SS_STEP_DUR))
+            ((colortemp-=NT_CT_STEP))
         else
             if ((now > SUNRISE && now < SUNSET)); then
-            notify "$(date '+%H:%M') daytime"
-            echo "daytime" > "$PERIOD_FILE"
-            colortemp=$HIGHEST_CT
-            start=1
-            ((sleeptime=SUNSET-now))
-            echo "ysunlight: [$(date '+%H:%M')] actual color temperature: $colortemp"
-            elif ((now > sunset_end || now < SUNRISE)); then
-            #after sunset or before sunrise
-            notify "$(date '+%H:%M') night"
-            echo "night" > "$PERIOD_FILE"
-            colortemp=$LOWEST_CT
-            start=1
-            if ((now > sunset_end && now < midnight)); then
-                # after sunset and before midnight
-                ((sleeptime=midnight-now))
-            #elif ((now > midnight && now < SUNRISE)); then
-            else
-                # after sunset and before sunrise
-                ((sleeptime=SUNRISE-now))
-            fi
-            echo "ysunlight: actual color temperature: $colortemp"
+                notify "$(date '+%H:%M') daytime"
+                echo "daytime" > "$PERIOD_FILE"
+                colortemp=$HIGHEST_CT
+                start=1
+                ((sleeptime=SUNSET-now))
+                echo "ysunlight: [$(date '+%H:%M')] actual color temperature: $colortemp"
+            elif ((now > sunset_end && now < NIGHT)); then
+                #after sunset and before night transition
+                notify "$(date '+%H:%M') night transition"
+                echo "night_transition" > "$PERIOD_FILE"
+                colortemp=$MID_CT
+                if ((now > sunset_end && now < midnight)); then
+                    # after sunset and before midnight
+                    ((sleeptime=NIGHT-now))
+                else
+                    # after sunset and before sunrise
+                    ((sleeptime=SUNRISE-now))
+                fi
+                echo "ysunlight: actual color temperature: $colortemp"
+            elif ((now > transition_end || now < SUNRISE)); then
+                #after sunset or before sunrise
+                notify "$(date '+%H:%M') night"
+                echo "night" > "$PERIOD_FILE"
+                colortemp=$LOWEST_CT
+                start=1
+                if ((now > sunset_end && now < midnight)); then
+                    # after sunset and before midnight
+                    ((sleeptime=midnight-now))
+                #elif ((now > midnight && now < SUNRISE)); then
+                else
+                    # after sunset and before sunrise
+                    ((sleeptime=SUNRISE-now))
+                fi
+                echo "ysunlight: actual color temperature: $colortemp"
             fi
         fi
 
@@ -185,12 +216,14 @@ monitor() {
 
         [[ $power == "on" ]] && ((ct != colortemp)) &&
             "$HOME"/.local/bin/ylightc -c "$colortemp" -S10000 &
-        
+
+        echo "ysunlight: ${colortemp}K (-.-)<(Zzz) $((sleeptime/60))mn"
         sleep "$sleeptime"
     done
 }
 
 # write to log file and/or console
+:> "$LOG_FILE"
 exec 3>&1 1>> "$LOG_FILE"  2>&1
 
 TIMEZONE="$(readoption "timezone")"
@@ -222,7 +255,8 @@ SS_STEP_DUR="$(readoption "sunset_step_duration")"
 
 # color temperature steps
 ((SR_CT_STEP=(HIGHEST_CT-LOWEST_CT)/(SR_DUR/SR_STEP_DUR)))
-((SS_CT_STEP=(HIGHEST_CT-LOWEST_CT)/(SS_DUR/SS_STEP_DUR)))
+((SS_CT_STEP=(MID_CT-LOWEST_CT)/(SS_DUR/SS_STEP_DUR)))
+((NT_CT_STEP=(HIGHEST_CT-MID_CT)/(SS_DUR/SS_STEP_DUR)))
 
 echo $$ > "$PID_FILE"
 trap update SIGHUP
