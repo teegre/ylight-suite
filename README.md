@@ -100,7 +100,7 @@ Turn light on, set brightness to 50% and color temperature to 4500K:
 Decrease brightness by 10% and turn light off:  
 `ylight -b -10 -f`
 
-## B. YSUNLIGHT version 0.5 (2020-07)
+## B. YSUNLIGHT version 0.6 (2020-11)
 
 YSUNLIGHT - set color temperature according to time of the day.
 
@@ -150,6 +150,7 @@ longitude=2.35
 
 Other settings can also be found:  
 ```
+night_time=11:00 PM
 sunrise_duration=600
 sunset_duration=600
 sunrise_step_duration=60
