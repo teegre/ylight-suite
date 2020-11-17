@@ -108,6 +108,12 @@ Once per day, **ysunlight** connects to this website [https://sunrise-sunset.org
 to retrieve sunrise and sunset times in your city, then it sets the right color temperature.  
 If the light is currently turned off, color temperature will be set once you turn the light on.
 
+| Period  | Color temperature |
+|:--------|:------------------|
+| Sunset | 1700K→6500K |
+| Sunrise | 6500K→4500K |
+| Night (user defined) | 4500K→1700K |
+
 ### 1. Configuration
 
 To be able to work, **ysunlight** needs to know:
@@ -177,5 +183,9 @@ and also: `systemctl --user status ysunlight`
 
 ## C. TODO
 
-YLIGHT: ability to send commands to more than one bulb at a time.
+[] YLIGHT: ability to send commands to more than one bulb at a time.
+
+[] YSUNLIGHT: Make color temperature configurable.
+
+[] YSUNLIGHT: Check if night_time value is valid.
 
