@@ -10,7 +10,7 @@
 
 progname="$(basename "$0")"
 PROGNAME="${progname^^}"
-VERSION="20210218-0.6"
+VERSION="20210304-0.6"
 
 declare HOST
 declare PORT
@@ -103,7 +103,7 @@ discover() {
       elif [[ $line =~ ^name:.*$ ]]; then
         name="${line%$'\r'}"
         name="${name/name: }"
-        name="${name:-bulb_${index}}"
+        [[ -z $name ]] && name="bulb_${idx}"
         # i don't know what happens if several bulbs are discovered
         echo "$name:$location" >> "$BULBS"
         ((idx++))
