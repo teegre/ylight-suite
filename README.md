@@ -3,7 +3,7 @@
 A. YLIGHT utility to control Yeelight® bulbs  
 B. YSUNLIGHT set color temperature to time of the day
 
-*Depends on: curl, jq, netcat*
+*Depends on: bash, coreutils, curl, jq, openbsd-netcat*
 
 ## Installation
 
@@ -14,7 +14,7 @@ then:
 `./install.sh`
 
 
-## A. YLIGHT version 0.5 (2020-06)
+## A. YLIGHT version 0.8 (2022-04)
 
 YLIGHT - utility to control Yeelight® bulbs
 
