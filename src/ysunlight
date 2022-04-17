@@ -6,7 +6,7 @@
 #  \__, |___/\__,_|_| |_|_|_|\__, |_| |_|\__|
 #  |___/                     |___/ ver. 0.6
 #
-#VERSION="20201114-0.6"
+#VERSION="20220417-0.7"
 
 declare CONFIG_DIR="$HOME/.config/ylight"
 declare CONFIG_FILE="$CONFIG_DIR/ysunlight.conf"
@@ -20,9 +20,9 @@ declare TIMEZONE
 declare LAT
 declare LON
 
-declare SUNRISE="5:00:00 AM"
-declare SUNSET="5:00:00 PM"
-declare NIGHT="8:00:00 PM"
+declare SUNRISE
+declare SUNSET
+declare NIGHT
 
 declare -i SR_DUR #sunrise duration in seconds
 declare -i SS_DUR #sunset duration in seconds
@@ -35,7 +35,7 @@ declare MID_CT=4500
 declare HIGHEST_CT=6500
 
 declare WEEKDAY
-WEEKDAY="$(LC_ALL=C date '+%a')"
+WEEKDAY="$(LC_TIME=C date '+%a')"
 
 readoption() {
     local f="$CONFIG_FILE"
@@ -79,22 +79,29 @@ get_times() {
             echo "ysunlight: no response, next attempt in $wait_time seconds..."
             sleep $wait_time
             ((wait_time+=30))
+            (( wait_time > 90 )) && break
         }
     done
     echo "ysunlight: parsing response..."
     sunrise="$(jq -r '.results["sunrise"]' <<< "$response")"
     sunset="$(jq -r '.results["sunset"]' <<< "$response")"
-    if [[ $sunrise != "null" ]]; then
+    if [[ $sunrise ]]; then
         SUNRISE="$(TZ="$TIMEZONE" date -d 'today '"$(date -d "$sunrise" '+%T')"' +0' '+%s')"
         echo "ysunlight: sunrise: $sunrise UTC"
     else
         echo "ysunlight: warning! could not retrieve sunrise time"
+        sunrise="$(readoption "sunrise_time")"
+        echo "ysunlight: sunrise set to: $sunrise"
+        SUNRISE="$(date -d "$sunrise" "+%s")"
     fi
-    if [[ $sunset != "null" ]]; then
+    if [[ $sunset ]]; then
         SUNSET="$(TZ="$TIMEZONE" date -d 'today '"$(date -d "$sunset" '+%T')"' +0' '+%s')"
         echo "ysunlight: sunset: $sunset UTC"
     else
         echo "ysunlight: warning! could not retrieve sunset time"
+        sunset="$(readoption "sunset_time")"
+        SUNSET="$(date -d "$sunset" "+%s")"
+        echo "ysunlight: sunset set to: $sunset"
     fi
     night="$(readoption "night_time")" || night="$NIGHT"
     NIGHT="$(date -d "$night" '+%s')"
@@ -133,10 +140,10 @@ monitor() {
 
     echo "ysunlight: [$(date '+%H:%M')] today is $WEEKDAY"
     while :; do
-        if [[ "$(LC_ALL=C date '+%a')" != "$WEEKDAY" ]]; then
+        if [[ "$(LC_TIME=C date '+%a')" != "$WEEKDAY" ]]; then
             echo "ysunlight: [$(date '+%H:%M')] a new day!"
             get_times
-            WEEKDAY="$(LC_ALL=C date '+%a')"
+            WEEKDAY="$(LC_TIME=C date '+%a')"
             midnight="$(date -d 'tomorrow 00:00:00' '+%s')"
             start=1
         fi
