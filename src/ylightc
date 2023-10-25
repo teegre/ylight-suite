@@ -439,13 +439,9 @@ read_location() {
 }
 
 toggle() {
-  local power=$POWER
+  local power="$POWER"
   [[ $power == "on" ]] && power="off" || power="on"
-  if [[ $_smooth || $_sudden ]]; then
   send_cmd "set_power" "$power"
-  else
-  send_cmd "toggle"
-  fi
 }
 
 __notify() {
