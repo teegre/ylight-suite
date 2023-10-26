@@ -183,19 +183,16 @@ send_cmd() {
   local method='"'$1'"'
   local params cmd response
   case $1 in
-  get_prop  ) params=',"params":["power","bright","ct","delayoff","name"]' ;;
-  set_bright) params=',"params":['$2',"'$EFFECT'",'$TRANSITION']' ;;
-  set_ct_abx) params=',"params":['$2',"'$EFFECT'",'$TRANSITION']' ;;
-  set_power ) params=',"params":["'$2'","'$EFFECT'",'$TRANSITION']' ;;
-  cron_add  ) params=',"params":[0,'$2']' ;;
-  cron_del  ) params=',"params":[0]' ;;
-  set_name  ) params=',"params":["'$2'"]' ;;
+    get_prop  ) params=',"params":["power","bright","ct","delayoff","name"]' ;;
+    set_bright) params=',"params":['$2',"'$EFFECT'",'$TRANSITION']' ;;
+    set_ct_abx) params=',"params":['$2',"'$EFFECT'",'$TRANSITION']' ;;
+    set_power ) params=',"params":["'$2'","'$EFFECT'",'$TRANSITION']' ;;
+    cron_add  ) params=',"params":[0,'$2']' ;;
+    cron_del  ) params=',"params":[0]' ;;
+    set_name  ) params=',"params":["'$2'"]' ;;
   esac
   _count=0
   cmd='{"id":'$ID',"method":'$method''$params'}\r\n'
-  # since netcat exit code is always 1
-  # we have to use a temp file to store
-  # stderr output...
   TMPERR="$(mktemp)"
   while read -r response; do
     _parse "$1" "$response" || {
@@ -236,7 +233,7 @@ get_status() {
   exit 1
 }
 
-_opts=$(LC_ALL=C getopt                 \
+_opts=$(LC_ALL=C getopt               \
   --long "on"                         \
   --long "off"                        \
   --long "toggle"                     \
